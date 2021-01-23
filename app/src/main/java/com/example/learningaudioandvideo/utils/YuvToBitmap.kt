@@ -6,6 +6,7 @@ import android.os.Environment
 import android.util.Log
 import android.util.Size
 import java.io.*
+import java.nio.ByteBuffer
 
 /**
  * Created with Android Studio.
@@ -14,7 +15,7 @@ import java.io.*
  * @CreateDate: 2021/1/21 0:24
  */
 object YuvToBitmap {
-    fun YuvToBitmap(data: ByteArray, size: Size, context : Context) {
+    fun YuvToBitmap(data: ByteBuffer, size: Size, context : Context) {
         val dirPath = File(Environment.getExternalStorageDirectory(), "wjx")
         if (!dirPath.exists()) {
             dirPath.mkdir()
@@ -23,7 +24,8 @@ object YuvToBitmap {
         val file = File(dirPath, fileName)
         try {
             val fos = FileOutputStream(file)
-            val yuvImage = YuvImage(data, ImageFormat.NV21, size.width, size.height, null)
+            val jpegBytes = ByteArray(data.remaining())
+            val yuvImage = YuvImage(jpegBytes, ImageFormat.NV21, size.width, size.height, null)
             if (yuvImage != null) {
                 var byteArrayOutputStream: ByteArrayOutputStream = ByteArrayOutputStream()
                 yuvImage.compressToJpeg(Rect(0, 0, size.width, size.height), 80, byteArrayOutputStream)
