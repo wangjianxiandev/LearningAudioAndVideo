@@ -2,12 +2,13 @@ package com.example.learningaudioandvideo.camera2stream
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.opengl.GLES20
 import android.os.Bundle
-import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
@@ -15,15 +16,16 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.annotation.NonNull
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.FragmentActivity
 import com.example.learningaudioandvideo.R
-import java.io.File
 import java.io.FileNotFoundException
-import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.util.*
+import javax.microedition.khronos.opengles.GL10
 
 
-class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream) {
+class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream), SurfaceTexture.OnFrameAvailableListener {
     private var previewSurface: SurfaceView? = null
     private var previewSurfaceHolder: SurfaceHolder? = null
 
@@ -68,8 +70,12 @@ class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream
     private var saveBufferInfo: MediaCodec.BufferInfo? = null
     private val cameraCharacteristics: CameraCharacteristics? = null
 
+    private var mSurfaceTexture : SurfaceTexture? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        mSurfaceTexture = SurfaceTexture(1)
+        mSurfaceTexture!!.setOnFrameAvailableListener(this)
         previewSurface = findViewById(R.id.previewSurface)
         previewSurfaceHolder = previewSurface!!.holder
         previewSurfaceHolder!!.addCallback(object : SurfaceHolder.Callback {
@@ -115,75 +121,82 @@ class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream
     var CameraOpenCallback: CameraDevice.StateCallback = object : CameraDevice.StateCallback() {
         override fun onOpened(@NonNull camera: CameraDevice) {
             cameraDevice = camera
-            try {
-                upBufferInfo = MediaCodec.BufferInfo()
-                //创建编码器
-                mediaPreviewEncode = MediaCodec.createEncoderByType(codecType)
-                //设置编码参数
-                mediaPreviewFormat = MediaFormat.createVideoFormat(codecType, 1280, 720)
-                //设置颜色格式
-                mediaPreviewFormat!!.setInteger(
-                    MediaFormat.KEY_COLOR_FORMAT,
-                    MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
-                )
-                // 设置比特率
-                mediaPreviewFormat!!.setInteger(MediaFormat.KEY_BIT_RATE, 2000000)
-                // 设置帧率
-                mediaPreviewFormat!!.setInteger(MediaFormat.KEY_FRAME_RATE, 25)
-                // 设置关键帧间隔时间（S）
-                mediaPreviewFormat!!.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-                // 将设置好的参数配置给编码器
-                mediaPreviewEncode!!.configure(
-                    mediaPreviewFormat,
-                    null,
-                    null,
-                    MediaCodec.CONFIGURE_FLAG_ENCODE
-                )
-                //使用surface代替mediacodec数据输入buffer
-                mediaPreviewSurface =
-                    mediaPreviewEncode!!.createInputSurface()
-                saveBufferInfo = MediaCodec.BufferInfo()
-                mediaCaptureEncode = MediaCodec.createEncoderByType(codecType)
-                mediaCaptureFormat = MediaFormat.createVideoFormat(codecType, 1920, 1080)
-                mediaCaptureFormat!!.setInteger(
-                    MediaFormat.KEY_COLOR_FORMAT,
-                    MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
-                )
-                mediaCaptureFormat!!.setInteger(MediaFormat.KEY_BIT_RATE, 4000000)
-                mediaCaptureFormat!!.setInteger(MediaFormat.KEY_FRAME_RATE, 20)
-                mediaCaptureFormat!!.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-                mediaCaptureEncode!!.configure(
-                    mediaCaptureFormat,
-                    null,
-                    null,
-                    MediaCodec.CONFIGURE_FLAG_ENCODE
-                )
-                mediaCaptureSurface = mediaCaptureEncode!!.createInputSurface()
-
-                //设置预览尺寸
-                previewSurfaceHolder!!.setFixedSize(1920, 1080)
-                // 创建预览请求
-                mPreviewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-                mPreviewBuilder!!.addTarget(previewSurfaceHolder!!.surface)
-                mPreviewBuilder!!.addTarget(mediaPreviewSurface!!)
-                mPreviewBuilder!!.addTarget(mediaCaptureSurface!!)
-                //创建会话
-                camera.createCaptureSession(
-                    Arrays.asList<Surface>(
-                        previewSurfaceHolder!!.surface,
-                        mediaPreviewSurface,
-                        mediaCaptureSurface
-                    ), Sessioncallback, null
-                )
-            } catch (e: IOException) {
-                e.printStackTrace()
-            } catch (e: CameraAccessException) {
-                e.printStackTrace()
-            }
+            prepareEncoder(camera)
         }
 
         override fun onDisconnected(@NonNull camera: CameraDevice) {}
         override fun onError(@NonNull camera: CameraDevice, error: Int) {}
+    }
+
+    fun onFrameAvailable(gl: GL10?) {
+        Log.e("WJX", "onDrawFrame...")
+    }
+    fun prepareEncoder(camera : CameraDevice) {
+        try {
+            upBufferInfo = MediaCodec.BufferInfo()
+            //创建编码器
+            mediaPreviewEncode = MediaCodec.createEncoderByType(codecType)
+            //设置编码参数
+            mediaPreviewFormat = MediaFormat.createVideoFormat(codecType, 1280, 720)
+            //设置颜色格式
+            mediaPreviewFormat!!.setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+            )
+            // 设置比特率
+            mediaPreviewFormat!!.setInteger(MediaFormat.KEY_BIT_RATE, 2000000)
+            // 设置帧率
+            mediaPreviewFormat!!.setInteger(MediaFormat.KEY_FRAME_RATE, 25)
+            // 设置关键帧间隔时间（S）
+            mediaPreviewFormat!!.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            // 将设置好的参数配置给编码器
+            mediaPreviewEncode!!.configure(
+                mediaPreviewFormat,
+                null,
+                null,
+                MediaCodec.CONFIGURE_FLAG_ENCODE
+            )
+            //使用surface代替mediacodec数据输入buffer
+            mediaPreviewSurface = Surface(mSurfaceTexture)
+//                mediaPreviewEncode!!.createInputSurface()
+            saveBufferInfo = MediaCodec.BufferInfo()
+            mediaCaptureEncode = MediaCodec.createEncoderByType(codecType)
+            mediaCaptureFormat = MediaFormat.createVideoFormat(codecType, 1920, 1080)
+            mediaCaptureFormat!!.setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+            )
+            mediaCaptureFormat!!.setInteger(MediaFormat.KEY_BIT_RATE, 4000000)
+            mediaCaptureFormat!!.setInteger(MediaFormat.KEY_FRAME_RATE, 20)
+            mediaCaptureFormat!!.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            mediaCaptureEncode!!.configure(
+                mediaCaptureFormat,
+                null,
+                null,
+                MediaCodec.CONFIGURE_FLAG_ENCODE
+            )
+            mediaCaptureSurface = mediaCaptureEncode!!.createInputSurface()
+
+            //设置预览尺寸
+            previewSurfaceHolder!!.setFixedSize(1920, 1080)
+            // 创建预览请求
+            mPreviewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            mPreviewBuilder!!.addTarget(previewSurfaceHolder!!.surface)
+            mPreviewBuilder!!.addTarget(mediaPreviewSurface!!)
+            mPreviewBuilder!!.addTarget(mediaCaptureSurface!!)
+            //创建会话
+            camera.createCaptureSession(
+                Arrays.asList<Surface>(
+                    previewSurfaceHolder!!.surface,
+                    mediaCaptureSurface,
+                    mediaPreviewSurface
+                ), Sessioncallback, null
+            )
+        } catch (e: IOException) {
+            e.printStackTrace()
+        } catch (e: CameraAccessException) {
+            e.printStackTrace()
+        }
     }
 
     /*录制视频回调*/
@@ -225,7 +238,7 @@ class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream
                         if (data != null) {
                             upBufferInfo!!.presentationTimeUs =
                                 SystemClock.uptimeMillis() * 1000
-                            // drainEncoder
+//                             drainEncoder()
                         }
                         // releasing buffer is important
                         mediaPreviewEncode!!.releaseOutputBuffer(status, false)
@@ -266,7 +279,7 @@ class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream
                         if (data != null) {
                             saveBufferInfo!!.presentationTimeUs =
                                 SystemClock.uptimeMillis() * 1000
-                            // drainEncoder
+//                             drainEncoder()
                         }
                         // releasing buffer is important
                         mediaCaptureEncode!!.releaseOutputBuffer(status, false)
@@ -298,5 +311,110 @@ class Camera2StreamActivity : AppCompatActivity(R.layout.activity_camera2_stream
         } catch (e: IOException) {
             e.printStackTrace()
         }
+    }
+
+    private fun release() {
+//        Surface(SurfaceTexture(1))
+    }
+
+//    private fun drainEncoder(endOfStream: Boolean) {
+//        val TIMEOUT_USEC = 10000
+//        if (endOfStream) {
+//            Log.d(
+//                com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                "drainEncoder($endOfStream)"
+//            )
+//        }
+//        if (endOfStream) {
+//            mediaPreviewEncode!!.signalEndOfInputStream()
+//        }
+//        var encoderOutputBuffers: Array<ByteBuffer?> = mediaPreviewEncode.getOutputBuffers()
+//        while (true) {
+//            val encoderStatus: Int =
+//                mediaPreviewEncode.dequeueOutputBuffer(mBufferInfo, TIMEOUT_USEC.toLong())
+//            if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
+//                // no output available yet
+//                if (!endOfStream) {
+//                    break // out of while
+//                } else {
+//                    if (com.android.grafika.SoftInputSurfaceActivity.VERBOSE) Log.d(
+//                        com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                        "no output available, spinning to await EOS"
+//                    )
+//                }
+//            } else if (encoderStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+//                // not expected for an encoder
+//                encoderOutputBuffers = mediaPreviewEncode!!.getOutputBuffers()
+//            } else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+//                // should happen before receiving buffers, and should only happen once
+//                if (mMuxerStarted) {
+//                    throw RuntimeException("format changed twice")
+//                }
+//                val newFormat: MediaFormat = mediaPreviewEncode!!.getOutputFormat()
+//                Log.d(
+//                    com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                    "encoder output format changed: $newFormat"
+//                )
+//
+//                // now that we have the Magic Goodies, start the muxer
+//                mTrackIndex = mMuxer.addTrack(newFormat)
+//                mMuxer.start()
+//                mMuxerStarted = true
+//            } else if (encoderStatus < 0) {
+//                Log.w(
+//                    com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                    "unexpected result from encoder.dequeueOutputBuffer: " +
+//                            encoderStatus
+//                )
+//                // let's ignore it
+//            } else {
+//                val encodedData = encoderOutputBuffers[encoderStatus]
+//                    ?: throw RuntimeException(
+//                        "encoderOutputBuffer " + encoderStatus +
+//                                " was null"
+//                    )
+//                if (mBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+//                    // The codec config data was pulled out and fed to the muxer when we got
+//                    // the INFO_OUTPUT_FORMAT_CHANGED status.  Ignore it.
+//                    if (com.android.grafika.SoftInputSurfaceActivity.VERBOSE) Log.d(
+//                        com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                        "ignoring BUFFER_FLAG_CODEC_CONFIG"
+//                    )
+//                    mBufferInfo.size = 0
+//                }
+//                if (mBufferInfo.size != 0) {
+//                    if (!mMuxerStarted) {
+//                        throw RuntimeException("muxer hasn't started")
+//                    }
+//
+//                    // adjust the ByteBuffer values to match BufferInfo
+//                    encodedData.position(mBufferInfo.offset)
+//                    encodedData.limit(mBufferInfo.offset + mBufferInfo.size)
+//                    mBufferInfo.presentationTimeUs = mFakePts
+//                    mFakePts += 1000000L / com.android.grafika.SoftInputSurfaceActivity.FRAMES_PER_SECOND
+//                    mMuxer.writeSampleData(mTrackIndex, encodedData, mBufferInfo)
+//                    if (com.android.grafika.SoftInputSurfaceActivity.VERBOSE) Log.d(
+//                        com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                        "sent " + mBufferInfo.size + " bytes to muxer"
+//                    )
+//                }
+//                mediaPreviewEncode!!.releaseOutputBuffer(encoderStatus, false)
+//                if (mBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+//                    if (!endOfStream) {
+//                        Log.w(
+//                            com.android.grafika.SoftInputSurfaceActivity.TAG,
+//                            "reached end of stream unexpectedly"
+//                        )
+//                    } else {
+//
+//                    }
+//                    break // out of while
+//                }
+//            }
+//        }
+//    }
+
+    override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
+        Log.e("WJX", "onframe available");
     }
 }
