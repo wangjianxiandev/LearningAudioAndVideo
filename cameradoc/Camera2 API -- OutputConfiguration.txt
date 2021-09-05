@@ -1,0 +1,66 @@
+#### 什么是OutputConfiguration
+* HAL configurate stream 只需要下述三者即可
+    * size
+    * format
+    * usage
+* OutputConfiguration用于描述一个输出流的配置信息，一个Outputconfiguration在HAL对应一条Stream, 它的具体功能如下：
+    * 设置Deferred Surface (针对SurfaceView not ready的场景）
+    * 设置Surface Group 
+    * 设置Physical Camera ID 
+    * 设置Surface Sharing
+
+#### OutputConfiguration的创建方式
+| 创建方式 | 释义|
+| -- | -- |
+|OutputConfiguration(Surface surface) 普通方式，常用 |将一个Ready的Surface作为参数传递给 OutputConfiguration来构建OutputConfiguration对象 |
+| OutputConfiguration(Size surfaceSize, Class klass) Deferred Surface方式，优化启动性能|通过surface source class和surface size作为参数传递给 OutputConfiguration来构建OutputConfiguration对象。 这种方式，在Session创建的过程中并行做Surface的初始化，从而提升性能。比如不用等待SurfaceView ready就可以创建Session, 通常surface source class 为SurfaceView, SurfaceTexture，只有这两种才有Deferred Surface|
+| OutputConfiguration(int surfaceGroupId, Surface surface) Surface Group方式，优化内存使用  |指定这个Surface属于哪个Surface Group，同一个Surface Group的Surfaces可以共享内存 |
+|createInstancesForMultiResolutionOutput MultiResolution方式 |根据MultiResolutionImageReader创建一个 OutputConfiguration list |
+
+#### Deferred Surface
+##### Deferred Surfae使用流程
+* ![在这里插入图片描述](https://img-blog.csdnimg.cn/4ad1c23e0cc24b0eb5be386ab1f58f28.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAd2p4Ymxlc3M=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center)
+
+* 注意： 
+    * Deferred Surface只能是SurfaceHolder.getSurface或SurfaceTexture，通过其他方式比如MediaCodec、MediaRecorder等获取的inputSUrface可以立即获取
+    * 送CaptureRequest给底层处理时，如果Deferred Surface 还未Ready，则不能带进 CaptureRequest，必须要 Finalize 过的Surface才能带进CaptureRequest
+
+---
+
+##### finalizeOutputConfigurations
+* 当Deferred Surface或Extra Surfaces被added后，调用该方法来Finalize OutputConfigurations
+* 多个Surfaces共用一个OutputConfiguration时（比如Surface Sharing)，当有新的Surface Available时，也可以调用该方法来Finalize
+* Finalize其实可以理解为Surface其实就是BufferQueue, 将SurfaceBuffer的Producer设置给CameraService，Finalize后通过Producer CameraService可以获取 Buffer handle，获取到Buffer handle的fd后传递给HAL, HAL生产Buffer
+
+
+#### Surface Group
+* 通常Surface Group中的Surfaces不会同时要求出流, 才能实现内存共享
+* 同一个Surface Group中的Surfaces会共享同一块内存，从而减少整体内存的使用量，比如group里面申请5块内存，只会给active的output用，group中的surface同时只能有一个active
+* App只需要为想要共享内存的Surfaces设置同一个Surface Group ID即可，具体的内存申请/ 复用由Camera Service负责
+* 当Surface Group ID为负数时，表示不共享Surface Group
+* 当在CaptureRequest中设置多个同一Surface Group ID的Surfaces时，可能会比这些Surfaces 来自不同的Surface Group ID更耗内存
+* 应用场景：
+    * 一个视频聊天App能够自适应输出不同分辨率的视频，且这些不同的分辨率视频同时只会有一个 在输出，此时，App可以将这些不同分辨率的视频设置为同一个Surface Group ID以达到共享内存 的目的
+
+#### Surface Sharing
+* 应用上层的两个outputs 使用同一个Camera Stream 如图：
+* ![在这里插入图片描述](https://img-blog.csdnimg.cn/476cda363ebe41c58fe1689c4a660ece.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAd2p4Ymxlc3M=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center)
+
+* 在创建Camera Capture Session前调用OutputConfiguration的enableSurfaceSharing方法使能Surface Sharing
+* 调用OutputConfiguration#addSurface 或 OutputConfiguration#removeSurface 后，通过 CameraCaptureSession#updateOutputConfiguration更新OutputConfiguration
+* 注意：
+    * 最多支持4个Surfaces Sharing一个OutputConfiguration
+    * 使用的同一个Camera Stream 所以Size format usage都要相同
+    * update之后capture request才能将add的surface添加进去
+    * 哪些Format可以Share
+        * < Android P：只有ImageFormat#PRIVATE可以被Share
+        * >= Android P ：除去ImageFormat#JPEG 和 ImageFormat#RAW_PRIVATE外的其他formats
+* 使用Surfae Sharing的好处
+    * 在不打断现有Repeating CaptureRequest的情况下，App可以切换不同的Output Surface
+
+
+#### updateOutputConfiguration
+* 在finalize OutputConfiguration后，通过该方法去更新 OutputConfiguration
+* 调用OutputConfiguration#addSurface 或 OutputConfiguration#removeSurface 后，需要通过该方法去更新 OutputConfiguration
+* 调用该方法无异常发生时，那在接下来的CaptureRequest中可以使用新 增加的Surface
+* Remove的Surfaces不能被包含在正在被处理的CaptureRequest中
